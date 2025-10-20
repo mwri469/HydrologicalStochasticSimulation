@@ -30,7 +30,7 @@ $$
 \Pr(I_{v,m,t} = 1 \mid I_{g,m,t}, Z_t) = \text{logit}^{-1}(\alpha_m + \beta_m I_{g,m,t} + \gamma_m Z_t)
 $$
 
-where $I_{v,m,t}$ and $I_{g,m,t}$ are exceedance indicators for the virtual and observed gauge stations respectively, and $Z_t$ represents optional climate covariates such as the ENSO index. When an exceedance occurs, the rainfall magnitude is drawn from the conditional tail model, ensuring that extreme events at the virtual station are consistent with those observed at the ranges. For months that are not extreme, a block-resampling technique is used to maintain realistic persistence and seasonal variation.
+where $I_{v,m,t}$ and $I_{g,m,t}$ are exceedance indicators for the virtual and observed gauge stations respectively, and $Z_t$ represents optional climate covariates, e.g. the potential for evapotranspiration. When an exceedance occurs, the rainfall magnitude is drawn from the conditional tail model, ensuring that extreme events at the virtual station are consistent with those observed at the ranges. For months that are not extreme, a block-resampling technique is used to maintain realistic persistence and seasonal variation.
 
 
 This process produces long synthetic records that are consistent with both the statistical characteristics of the observed data and the physical relationship between the ranges and the lower catchments.
@@ -56,6 +56,7 @@ While conditional sampling captures many aspects of dependence, it does not full
 [1] https://www.metsoc.org.nz/resources/Documents/weather_and_climate/2010_301_23-48_CareySmith.pdf#
 
 [2] https://gmd.copernicus.org/articles/16/3785/2023/#
+
 
 
 
