@@ -14,7 +14,7 @@ In the 2022 iteration of this method, the Waikato sites were stochastically gene
 
 To extend the VCSN records, rainfall distributions are separated into common and extreme ranges, with the upper tail represented by a Generalised Pareto Distribution. Dependence between the long gauges and the virtual stations is described through statistical models that link both the occurrence and the size of extreme events. This couples the probability of an extreme month at the virtual Waikato stations to vary in line with the state of the observational gauges. For the other, non extreme months, resampling methods preserve the typical ebb & flow that is consistent with normal rainfall patterns. 
 
-For each station $ s $ and calendar month $ m $, the rainfall values $ X_{s,m} = \{x_{s,m,t}\} $ are separated by a threshold $ u_{s,m} $, at some percentile of that month’s distribution. The model for the cumulative distribution function $ F_{s,m}(x) $ is defined as
+For each station $s$ and calendar month $ m $, the rainfall values $ X_{s,m} = \{x_{s,m,t}\} $ are separated by a threshold $ u_{s,m} $, at some percentile of that month’s distribution. The model for the cumulative distribution function $ F_{s,m}(x) $ is defined as
 
 $$
 F_{s,m}(x) =
@@ -56,4 +56,5 @@ While conditional sampling captures many aspects of dependence, it does not full
 [1] https://www.metsoc.org.nz/resources/Documents/weather_and_climate/2010_301_23-48_CareySmith.pdf#
 
 [2] https://gmd.copernicus.org/articles/16/3785/2023/#
+
 
