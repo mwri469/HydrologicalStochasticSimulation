@@ -14,7 +14,7 @@ In the 2022 iteration of this method, the Waikato sites were stochastically gene
 
 To extend the VCSN records, rainfall distributions are separated into common and extreme ranges, with the upper tail represented by a Generalised Pareto Distribution. Dependence between the long gauges and the virtual stations is described through statistical models that link both the occurrence and the size of extreme events. This couples the probability of an extreme month at the virtual Waikato stations to vary in line with the state of the observational gauges. For the other, non extreme months, resampling methods preserve the typical ebb & flow that is consistent with normal rainfall patterns. 
 
-For each station $s$ and calendar month $ m $, the rainfall values $ X_{s,m} = \{x_{s,m,t}\} $ are separated by a threshold $ u_{s,m} $, at some percentile of that month’s distribution. The model for the cumulative distribution function $ F_{s,m}(x) $ is defined as
+For each station $s$ and calendar month $m$, the rainfall values $X_{s,m} = \{x_{s,m,t}\}$ are separated by a threshold $u_{s,m}$, at some percentile of that month’s distribution. The model for the cumulative distribution function $F_{s,m}(x)$ is defined as
 
 $$
 F_{s,m}(x) =
@@ -24,13 +24,13 @@ F_{\text{bulk},s,m}(x), & x \leq u_{s,m} \\
 \end{cases}
 $$
 
-where $F_{\text{bulk},s,m}(x)$ is the empirical distribution of non-extreme rainfall, $ p_{\text{exceed}} = \Pr(X > u_{s,m}) $, and $ \sigma $ and $ \xi $ are the scale and shape parameters of the Generalised Pareto Distribution fitted to the exceedances. Dependence between the observed gauges and the virtual stations is introduced through a conditional probability model that links both the occurrence and the magnitude of extreme rainfall. The probability of an exceedance at a virtual station is defined as
+where $F_{\text{bulk},s,m}(x)$ is the empirical distribution of non-extreme rainfall, $p_{\text{exceed}} = \Pr(X > u_{s,m})$, and $\sigma$ and $\xi$ are the scale and shape parameters of the Generalised Pareto Distribution fitted to the exceedances. Dependence between the observed gauges and the virtual stations is introduced through a conditional probability model that links both the occurrence and the magnitude of extreme rainfall. The probability of an exceedance at a virtual station is defined as
 
 $$
 \Pr(I_{v,m,t} = 1 \mid I_{g,m,t}, Z_t) = \text{logit}^{-1}(\alpha_m + \beta_m I_{g,m,t} + \gamma_m Z_t)
 $$
 
-where $ I_{v,m,t} $ and $ I_{g,m,t} $ are exceedance indicators for the virtual and observed gauge stations respectively, and $ Z_t $ represents optional climate covariates such as the ENSO index. When an exceedance occurs, the rainfall magnitude is drawn from the conditional tail model, ensuring that extreme events at the virtual station are consistent with those observed at the ranges. For months that are not extreme, a block-resampling technique is used to maintain realistic persistence and seasonal variation.
+where $I_{v,m,t}$ and $I_{g,m,t}$ are exceedance indicators for the virtual and observed gauge stations respectively, and $Z_t$ represents optional climate covariates such as the ENSO index. When an exceedance occurs, the rainfall magnitude is drawn from the conditional tail model, ensuring that extreme events at the virtual station are consistent with those observed at the ranges. For months that are not extreme, a block-resampling technique is used to maintain realistic persistence and seasonal variation.
 
 
 This process produces long synthetic records that are consistent with both the statistical characteristics of the observed data and the physical relationship between the ranges and the lower catchments.
@@ -56,5 +56,6 @@ While conditional sampling captures many aspects of dependence, it does not full
 [1] https://www.metsoc.org.nz/resources/Documents/weather_and_climate/2010_301_23-48_CareySmith.pdf#
 
 [2] https://gmd.copernicus.org/articles/16/3785/2023/#
+
 
 
