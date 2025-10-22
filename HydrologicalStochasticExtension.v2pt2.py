@@ -10,7 +10,7 @@ This approach:
  - Processes all 3 Waikato sites with shared temporal structure
 """
 
-import os
+import sys
 import warnings
 from pathlib import Path
 
@@ -38,8 +38,10 @@ VIRTUAL_STATIONS = [
     ("WaipaRiver", FILES["waipa_vcsn"])
 ]
 
+SEED = 17
+
 ROLLING_WINDOW = 19
-THRESH_QUANTILE = 0.85
+THRESH_QUANTILE = 0.9
 MIN_EXCEEDANCES = 5
 MIN_BULK_SAMPLES = 30
 
@@ -317,7 +319,13 @@ def disaggregate_to_daily(monthly_df: pd.DataFrame, vcsn_daily: pd.DataFrame):
     return full_daily
 
 if __name__ == "__main__":
-    np.random.seed(10)
+    if len(sys.argv) > 2:
+        if sys.argv[1] == '--seed':
+            seed = int(sys.argv[2])
+    else:
+        seed = SEED
+
+    np.random.seed(seed)
     warnings.filterwarnings('ignore')
     
     print("="*60)
