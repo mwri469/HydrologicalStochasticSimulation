@@ -8,7 +8,7 @@ The aim of this approach is to extend the VCSN rainfall records using informatio
 
 ## Method
 
-This method operates at the 19-month rolling sum scale to properly capture drought characteristics and long-term rainfall persistence. For each VCSN virtual station (Upper Waikato, Lower Waikato, Waipa River), 19-month rolling rainfall totals are computed from the observed VCSN record (1972-2025). The distribution of these 19-month totals is modeled using a two-component approach where the bulk of the distribution uses empirical resampling from observed values, while the tail is represented by a Generalised Pareto Distribution fitted to exceedances above the 85th percentile threshold.
+The Multi-scale Analog Weather Resampling (MAWR) method operates at the 19-month rolling sum scale to properly capture drought characteristics and long-term rainfall persistence. For each VCSN virtual station (Upper Waikato, Lower Waikato, Waipa River), 19-month rolling rainfall totals are computed from the observed VCSN record (1972-2025). The distribution of these 19-month totals is modeled using a two-component approach where the bulk of the distribution uses empirical resampling from observed values, while the tail is represented by a Generalised Pareto Distribution fitted to exceedances above the 85th percentile threshold.
 
 The cumulative distribution function is defined as:
 
@@ -43,4 +43,5 @@ This method assumes that the statistical relationship between the ranges and vir
 [2] Bird, D., et al. (2023). "A deep learning approach to downscaling and bias correction of daily precipitation using a weather generator." Geoscientific Model Development, 16, 3785-3812. https://gmd.copernicus.org/articles/16/3785/2023/
 
 [3] Coles, S. (2001). An Introduction to Statistical Modeling of Extreme Values. Springer.
+
 
