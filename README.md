@@ -43,3 +43,4 @@ This method assumes that the statistical relationship between the ranges and vir
 [2] Bird, D., et al. (2023). "A deep learning approach to downscaling and bias correction of daily precipitation using a weather generator." Geoscientific Model Development, 16, 3785-3812. https://gmd.copernicus.org/articles/16/3785/2023/
 
 [3] Coles, S. (2001). An Introduction to Statistical Modeling of Extreme Values. Springer.
+
