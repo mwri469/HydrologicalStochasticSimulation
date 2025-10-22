@@ -1,0 +1,388 @@
+"""
+stochastic_extend_19month.py
+
+Create stochastic extensions for VCSN virtual stations using 19-month rolling sums.
+This approach:
+ - Fits Weibull (bulk) + GPD (tail) to 19-month rolling rainfall totals
+ - Uses temporal structure from Hunua/Waitakere gauges to determine timing of extremes
+ - Samples from site-specific distributions (not gauge distributions)
+ - Disaggregates 19-month totals to monthly, then to daily
+ - Processes all 3 Waikato sites with shared temporal structure
+"""
+
+import os
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+from tqdm import tqdm
+
+DATA_DIR = Path(r"P:\1011941\1011941.3000\WorkingMaterial\01 IPCC6 MODELLING\01 COLLATE DOWNSCALED NIWA DATA\02 OUTPUT\ConvertedVCSNdata")
+GAUGE_DIR = Path(r"P:\1011941\1011941.3000\WorkingMaterial\01 IPCC6 MODELLING\01 COLLATE DOWNSCALED NIWA DATA\00 DATA")
+OUTPUT_DIR = Path("../../../02 OUTPUT/MAWR Synthetic method")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+FILES = {
+    "upper_waikato_vcsn": DATA_DIR / "UpperWaikato_pr_29940.csv",
+    "lower_waikato_vcsn": DATA_DIR / "LowerWaikato_pr_28200.csv",
+    "waipa_vcsn": DATA_DIR / "WaipaRiver_pr_29278.csv",
+    "hunua_record": GAUGE_DIR / "PD00_HunuaRanges_RF_1853-2025.csv",
+    "waitakere_record": GAUGE_DIR / "PD00_WaitakereRanges_RF_1853-2025.csv"
+}
+
+VIRTUAL_STATIONS = [
+    ("UpperWaikato", FILES["upper_waikato_vcsn"]),
+    ("LowerWaikato", FILES["lower_waikato_vcsn"]),
+    ("WaipaRiver", FILES["waipa_vcsn"])
+]
+
+ROLLING_WINDOW = 19
+THRESH_QUANTILE = 0.8
+MIN_EXCEEDANCES = 10
+MIN_BULK_SAMPLES = 30
+
+def process_datetime(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure consistent date and rainfall columns."""
+    df = df.copy()
+    df["Date"] = pd.to_datetime(df["Date"])
+    rain_col = df.columns[-1]
+    df["Rainfall"] = df[rain_col].astype(float)
+    df["Year"] = df["Date"].dt.year
+    df["Month"] = df["Date"].dt.month
+    return df[["Date", "Year", "Month", "Rainfall"]]
+
+def read_and_prepare_daily(path: Path) -> pd.DataFrame:
+    """Read and process daily rainfall CSV."""
+    df = pd.read_csv(path)
+    return process_datetime(df)
+
+def to_monthly_totals(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate daily data to monthly totals."""
+    monthly = df.groupby(["Year", "Month"], as_index=False)["Rainfall"].sum()
+    monthly["YearMonth"] = pd.to_datetime(monthly[["Year", "Month"]].assign(day=1))
+    return monthly[["YearMonth", "Year", "Month", "Rainfall"]]
+
+def compute_rolling_19month(monthly_df: pd.DataFrame) -> pd.DataFrame:
+    """Compute 19-month rolling sums from monthly data."""
+    monthly_df = monthly_df.sort_values("YearMonth").reset_index(drop=True)
+    monthly_df["Rolling_19m"] = monthly_df["Rainfall"].rolling(window=ROLLING_WINDOW, min_periods=ROLLING_WINDOW).sum()
+    return monthly_df.dropna(subset=["Rolling_19m"]).reset_index(drop=True)
+
+def fit_rolling_models(rolling_df: pd.DataFrame, station_name: str):
+    """
+    Fit empirical bulk + GPD tail to 19-month rolling sums.
+    Returns fitted parameters and threshold.
+    """
+    values = rolling_df["Rolling_19m"].dropna().values
+    
+    if len(values) < MIN_BULK_SAMPLES:
+        raise ValueError(f"Insufficient data for {station_name}: {len(values)} samples")
+    
+    threshold = np.quantile(values, THRESH_QUANTILE)
+    
+    bulk = values[values <= threshold]
+    if len(bulk) < MIN_BULK_SAMPLES:
+        raise ValueError(f"Insufficient bulk samples for {station_name}")
+    
+    exceedances = values[values > threshold] - threshold
+    if len(exceedances) >= MIN_EXCEEDANCES:
+        gpd_shape, gpd_loc, gpd_scale = stats.genpareto.fit(exceedances, floc=0)
+    else:
+        print(f"  Warning: Only {len(exceedances)} exceedances, GPD may be unreliable")
+        gpd_shape, gpd_scale = 0.1, np.std(exceedances) if len(exceedances) > 0 else 100
+    
+    model = {
+        "bulk_empirical": bulk.copy(),
+        "threshold": threshold,
+        "gpd": (gpd_shape, gpd_scale),
+        "p_exceed": np.mean(values > threshold),
+        "n_samples": len(values),
+        "n_exceedances": len(exceedances)
+    }
+    
+    print(f"  {station_name}: threshold={threshold:.1f}mm, "
+          f"p_exceed={model['p_exceed']:.3f}, n_exceed={len(exceedances)}, "
+          f"n_bulk={len(bulk)}")
+    
+    return model
+
+def compute_gauge_extremeness(gauge_rolling: pd.DataFrame) -> pd.Series:
+    """
+    Compute 'extremeness' score for gauge based on its 19-month rolling values.
+    Returns normalized score (0-1) where 1 = most extreme.
+    """
+    values = gauge_rolling["Rolling_19m"].values
+    ranks = stats.rankdata(values) / len(values)
+    gauge_rolling = gauge_rolling.copy()
+    gauge_rolling["extremeness"] = ranks
+    return gauge_rolling
+
+def simulate_with_temporal_structure(station_models: dict, gauge_rolling: pd.DataFrame, 
+                                     extension_months: pd.DataFrame, noise_scale: float = 0.2):
+    """
+    Simulate 19-month totals for extension period using gauge temporal structure.
+    
+    Args:
+        station_models: Dict of {station_name: fitted_model}
+        gauge_rolling: Gauge 19-month rolling with extremeness scores
+        extension_months: DataFrame of months to simulate
+        noise_scale: Amount of noise to add to gauge extremeness signal (0-1)
+    
+    Returns:
+        Dict of {station_name: simulated_19month_series}
+    """
+    extension_start = extension_months["YearMonth"].min()
+    extension_end = extension_months["YearMonth"].max()
+    
+    gauge_ext = gauge_rolling[
+        (gauge_rolling["YearMonth"] >= extension_start) & 
+        (gauge_rolling["YearMonth"] <= extension_end)
+    ].copy()
+    
+    if len(gauge_ext) == 0:
+        raise ValueError("No gauge data overlaps with extension period")
+    
+    simulated = {}
+    
+    for station_name, model in station_models.items():
+        bulk_empirical = model["bulk_empirical"]
+        threshold = model["threshold"]
+        gpd_shape, gpd_scale = model["gpd"]
+        p_exceed = model["p_exceed"]
+        
+        station_values = []
+        
+        for _, row in gauge_ext.iterrows():
+            gauge_extreme = row["extremeness"]
+            
+            noisy_extreme = np.clip(gauge_extreme + np.random.normal(0, noise_scale), 0, 1)
+            
+            adjusted_p_exceed = p_exceed * (0.5 + noisy_extreme)
+            adjusted_p_exceed = np.clip(adjusted_p_exceed, 0, 0.5)
+            
+            is_extreme = np.random.rand() < adjusted_p_exceed
+            
+            if is_extreme and not np.isnan(gpd_shape):
+                value = threshold + stats.genpareto.rvs(gpd_shape, scale=gpd_scale)
+            else:
+                value = np.random.choice(bulk_empirical)
+            
+            station_values.append(max(0, value))
+        
+        simulated[station_name] = pd.DataFrame({
+            "YearMonth": gauge_ext["YearMonth"].values,
+            "Rolling_19m_simulated": station_values
+        })
+    
+    return simulated
+
+def disaggregate_19month_to_monthly(rolling_19m_series: pd.DataFrame, 
+                                   vcsn_monthly: pd.DataFrame) -> pd.DataFrame:
+    """
+    Disaggregate 19-month totals to monthly values using VCSN climatology.
+    Uses constrained proportional scaling to match rolling sums.
+    """
+    vcsn_monthly = vcsn_monthly.copy()
+    vcsn_monthly["Rolling_19m_vcsn"] = vcsn_monthly["Rainfall"].rolling(
+        window=ROLLING_WINDOW, min_periods=ROLLING_WINDOW
+    ).sum()
+    
+    vcsn_climatology = vcsn_monthly.groupby("Month").agg({
+        "Rainfall": "mean",
+        "Rolling_19m_vcsn": "mean"
+    }).reset_index()
+    vcsn_climatology.columns = ["Month", "Monthly_clim", "Rolling_clim"]
+    
+    extension_start = rolling_19m_series["YearMonth"].min()
+    extension_end = rolling_19m_series["YearMonth"].max() + pd.DateOffset(months=ROLLING_WINDOW-1)
+    
+    monthly_dates = pd.date_range(extension_start, extension_end, freq='MS')
+    monthly_extended = pd.DataFrame({
+        "YearMonth": monthly_dates,
+        "Month": monthly_dates.month
+    })
+    
+    monthly_extended = pd.merge(monthly_extended, vcsn_climatology, on="Month", how="left")
+    monthly_extended["Monthly_initial"] = monthly_extended["Monthly_clim"]
+    
+    for idx, row in rolling_19m_series.iterrows():
+        target_ym = row["YearMonth"]
+        target_value = row["Rolling_19m_simulated"]
+        
+        window_start = target_ym
+        window_end = target_ym + pd.DateOffset(months=ROLLING_WINDOW-1)
+        
+        mask = (monthly_extended["YearMonth"] >= window_start) & (monthly_extended["YearMonth"] <= window_end)
+        current_sum = monthly_extended.loc[mask, "Monthly_initial"].sum()
+        
+        if current_sum > 0:
+            scale_factor = target_value / current_sum
+            monthly_extended.loc[mask, "Monthly_initial"] *= scale_factor
+    
+    monthly_extended["Rainfall"] = monthly_extended["Monthly_initial"]
+    monthly_extended["Year"] = monthly_extended["YearMonth"].dt.year
+    
+    return monthly_extended[["YearMonth", "Year", "Month", "Rainfall"]]
+
+def disaggregate_to_daily(monthly_df: pd.DataFrame, vcsn_daily: pd.DataFrame):
+    """Disaggregate monthly totals to daily using VCSN climatology."""
+    vcsn_start = vcsn_daily["Date"].min()
+    
+    vcsn_period = vcsn_daily.copy()
+    
+    vcsn_daily = vcsn_daily.copy()
+    vcsn_daily["YearMonth"] = vcsn_daily["Date"].values.astype('datetime64[M]')
+    vcsn_daily["Day"] = vcsn_daily["Date"].dt.day
+    
+    vcsn_monthly_totals = vcsn_daily.groupby(["Month", "YearMonth"])["Rainfall"].sum().reset_index()
+    vcsn_daily = pd.merge(vcsn_daily, vcsn_monthly_totals, on=["Month", "YearMonth"], suffixes=("", "_monthly"))
+    
+    vcsn_daily["proportion"] = vcsn_daily["Rainfall"] / vcsn_daily["Rainfall_monthly"]
+    vcsn_daily["proportion"] = vcsn_daily["proportion"].fillna(0)
+    
+    daily_climatology = vcsn_daily.groupby(["Month", "Day"])["proportion"].mean().reset_index()
+    
+    extension_monthly = monthly_df[monthly_df["YearMonth"] < vcsn_start].copy()
+    
+    if len(extension_monthly) == 0:
+        return vcsn_period[["Date", "Year", "Month", "Rainfall"]]
+    
+    extension_start = extension_monthly["YearMonth"].min()
+    extension_end = vcsn_start - pd.Timedelta(days=1)
+    extension_dates = pd.date_range(extension_start, extension_end, freq='D')
+    
+    extension_daily = pd.DataFrame({"Date": extension_dates})
+    extension_daily["Year"] = extension_daily["Date"].dt.year
+    extension_daily["Month"] = extension_daily["Date"].dt.month
+    extension_daily["Day"] = extension_daily["Date"].dt.day
+    extension_daily["YearMonth"] = extension_daily["Date"].values.astype('datetime64[M]')
+    
+    extension_daily = pd.merge(extension_daily, extension_monthly[["YearMonth", "Rainfall"]], on="YearMonth", how="left")
+    extension_daily = extension_daily.rename(columns={"Rainfall": "Monthly_Total"})
+    
+    extension_daily = pd.merge(extension_daily, daily_climatology, on=["Month", "Day"], how="left")
+    extension_daily["proportion"] = extension_daily["proportion"].fillna(1/30)
+    
+    month_prop_sums = extension_daily.groupby("YearMonth")["proportion"].transform("sum")
+    extension_daily["proportion_normalized"] = extension_daily["proportion"] / month_prop_sums
+    
+    extension_daily["Rainfall"] = extension_daily["Monthly_Total"] * extension_daily["proportion_normalized"]
+    extension_daily = extension_daily[["Date", "Year", "Month", "Rainfall"]]
+    
+    full_daily = pd.concat([
+        extension_daily,
+        vcsn_period[["Date", "Year", "Month", "Rainfall"]]
+    ]).sort_values("Date").reset_index(drop=True)
+    
+    return full_daily
+
+if __name__ == "__main__":
+    np.random.seed(42)
+    warnings.filterwarnings('ignore')
+    
+    print("="*60)
+    print("VCSN 19-Month Rolling Stochastic Extension")
+    print("="*60)
+    
+    print("\n1. Reading gauge daily data...")
+    hunua_daily = read_and_prepare_daily(FILES["hunua_record"])
+    waitakere_daily = read_and_prepare_daily(FILES["waitakere_record"])
+    
+    print(f"  Hunua: {hunua_daily['Date'].min()} to {hunua_daily['Date'].max()}")
+    print(f"  Waitakere: {waitakere_daily['Date'].min()} to {waitakere_daily['Date'].max()}")
+    
+    print("\n2. Aggregating to monthly and computing 19-month rolling sums...")
+    hunua_monthly = to_monthly_totals(hunua_daily)
+    waitakere_monthly = to_monthly_totals(waitakere_daily)
+    
+    hunua_rolling = compute_rolling_19month(hunua_monthly)
+    waitakere_rolling = compute_rolling_19month(waitakere_monthly)
+    
+    gauge_rolling = pd.merge(
+        hunua_rolling[["YearMonth", "Rolling_19m"]],
+        waitakere_rolling[["YearMonth", "Rolling_19m"]],
+        on="YearMonth",
+        suffixes=("_hunua", "_waitakere")
+    )
+    gauge_rolling["Rolling_19m"] = (gauge_rolling["Rolling_19m_hunua"] + 
+                                     gauge_rolling["Rolling_19m_waitakere"]) / 2
+    
+    gauge_rolling = compute_gauge_extremeness(gauge_rolling)
+    
+    print(f"  Gauge 19-month rolling: {len(gauge_rolling)} periods")
+    
+    print("\n3. Loading VCSN data and fitting models...")
+    station_models = {}
+    vcsn_data = {}
+    
+    for station_name, vcsn_path in VIRTUAL_STATIONS:
+        print(f"\n  Processing {station_name}...")
+        vcsn_daily = read_and_prepare_daily(vcsn_path)
+        vcsn_monthly = to_monthly_totals(vcsn_daily)
+        vcsn_rolling = compute_rolling_19month(vcsn_monthly)
+        
+        print(f"    VCSN range: {vcsn_daily['Date'].min()} to {vcsn_daily['Date'].max()}")
+        print(f"    19-month periods: {len(vcsn_rolling)}")
+        
+        model = fit_rolling_models(vcsn_rolling, station_name)
+        station_models[station_name] = model
+        vcsn_data[station_name] = {
+            "daily": vcsn_daily,
+            "monthly": vcsn_monthly,
+            "rolling": vcsn_rolling
+        }
+    
+    print("\n4. Simulating extension period with temporal structure...")
+    vcsn_start = min(data["monthly"]["YearMonth"].min() for data in vcsn_data.values())
+    gauge_start = gauge_rolling["YearMonth"].min()
+    
+    extension_months = pd.DataFrame({
+        "YearMonth": pd.date_range(gauge_start, vcsn_start, freq='MS', inclusive='left')
+    })
+    extension_months["Year"] = extension_months["YearMonth"].dt.year
+    extension_months["Month"] = extension_months["YearMonth"].dt.month
+    
+    print(f"  Extension period: {extension_months['YearMonth'].min()} to {extension_months['YearMonth'].max()}")
+    print(f"  Simulating {len(extension_months)} months across {len(VIRTUAL_STATIONS)} stations...")
+    
+    simulated_19m = simulate_with_temporal_structure(
+        station_models, gauge_rolling, extension_months, noise_scale=0.2
+    )
+    
+    print("\n5. Disaggregating and saving results...")
+    for station_name in simulated_19m.keys():
+        print(f"\n  {station_name}:")
+        
+        monthly_extended = disaggregate_19month_to_monthly(
+            simulated_19m[station_name],
+            vcsn_data[station_name]["monthly"]
+        )
+        
+        combined_monthly = pd.concat([
+            monthly_extended,
+            vcsn_data[station_name]["monthly"]
+        ]).sort_values("YearMonth").drop_duplicates(subset=["YearMonth"]).reset_index(drop=True)
+        
+        print(f"    Combined monthly: {len(combined_monthly)} months")
+        
+        extended_daily = disaggregate_to_daily(
+            combined_monthly,
+            vcsn_data[station_name]["daily"]
+        )
+        
+        print(f"    Final daily range: {extended_daily['Date'].min()} to {extended_daily['Date'].max()}")
+        print(f"    Total days: {len(extended_daily)}")
+        
+        out_csv = OUTPUT_DIR / f"{station_name}_VCSN_19m_extended_1853-2025.csv"
+        extended_daily.to_csv(out_csv, index=False)
+        print(f"    Saved: {out_csv}")
+        
+        print(f"    Summary: Total={extended_daily['Rainfall'].sum():.1f}mm, "
+              f"Mean={extended_daily['Rainfall'].mean():.2f}mm, "
+              f"Max={extended_daily['Rainfall'].max():.1f}mm")
+    
+    print(f"\n{'='*60}")
+    print("✓ All stations processed!")
+    print(f"{'='*60}")
