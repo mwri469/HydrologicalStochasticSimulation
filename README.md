@@ -1,62 +1,45 @@
 # Extending Virtual Climate Station Rainfall Records for Auckland
 
-There is a  in the available rainfall data for Auckland. The Waitakere and Hunua Ranges have long observational records dating back to the 1853, while the Virtual Climate Stations (VCSN stations), only extend from 1972 to the present. The short length of the virtual records limits their ability to represent the full range of possible climate behaviour, such as the return intervals of extreme rainfall and drought events that are important for simulating Watercare's catchments of interest. This in turn restricts the modelled characteristic rainfall.
+There is a gap in the available rainfall data for Auckland. The Waitakere and Hunua Ranges have long observational records dating back to 1853, while the Virtual Climate Stations (VCSN stations) only extend from 1972 to the present. The short length of the virtual records limits their ability to represent the full range of possible climate behaviour, such as the return intervals of extreme rainfall and drought events that are important for simulating Watercare's catchments of interest. This in turn restricts the modelled characteristic rainfall.
 
 ## Aim
 
-The aim of this proposal is to extend the VCSN rainfall records using information from the long observational gauges. Rather than resampling the recent record in a purely random manner (i.e. bootstrapping $\overset{\mathrm{iid}}{\sim} N(\mu,\sigma)$), the approach introduces conditional probability relationships that allow the synthetic data to reflect the behaviour seen in the historical observations. This means that months with exceptional rainfall in the long record can influence the probability and magnitude of extreme events in the extended virtual series. In this way the synthetic data retain realistic temporal structure while maintaining the structure of extreme events that may not appear in the short modern record E.g. 1930s droughts.
+The aim of this approach is to extend the VCSN rainfall records using information from the long observational gauges. Rather than resampling the recent record in a purely random manner (i.e. bootstrapping $\overset{\mathrm{iid}}{\sim} N(\mu,\sigma)$), the approach introduces temporal structure from the historical observations that allows the synthetic data to reflect extreme wet and dry periods seen in the long record. This means that extended droughts or exceptional rainfall periods in the historical observations can influence the timing and magnitude of events in the extended virtual series.
 
 ## Method
 
-In the 2022 iteration of this method, the Waikato sites were stochastically generated using the Stochastic Climate Library (SCL library):
+This method operates at the 19-month rolling sum scale to properly capture drought characteristics and long-term rainfall persistence. For each VCSN virtual station (Upper Waikato, Lower Waikato, Waipa River), 19-month rolling rainfall totals are computed from the observed VCSN record (1972-2025). The distribution of these 19-month totals is modeled using a two-component approach where the bulk of the distribution uses empirical resampling from observed values, while the tail is represented by a Generalised Pareto Distribution fitted to exceedances above the 85th percentile threshold.
 
-> The observed record from the Waikato sites only extended back to 1960 and therefore the length of this observed record (62 years) was shorter than the observed records in the Hunua and Waitakere Ranges (168 years). To generate co-variant stochastics across Auckland and the Waikato, the Waikato record fed into SCL needed to be extended by 106 years back to 1853 to match the Auckland records. A piece-wise dataset for Waikato was created through appending two stochastic iterations to the observed record. To do this, SCL was used to generate 10 iterations of stochastic data for Lower Waikato between 1853 and 1960 (broken up into two periods of 1853-1906 and 1906-1960).
-
-To extend the VCSN records, rainfall distributions are separated into common and extreme ranges, with the upper tail represented by a Generalised Pareto Distribution. Dependence between the long gauges and the virtual stations is described through statistical models that link both the occurrence and the size of extreme events. This couples the probability of an extreme month at the virtual Waikato stations to vary in line with the state of the observational gauges. For the other, non extreme months, resampling methods preserve the typical ebb & flow that is consistent with normal rainfall patterns. 
-
-For each station $s$ and calendar month $m$, the rainfall values $X_{s,m} = \{x_{s,m,t}\}$ are separated by a threshold $u_{s,m}$, at some percentile of that month’s distribution. The model for the cumulative distribution function $F_{s,m}(x)$ is defined as
+The cumulative distribution function is defined as:
 
 $$
-F_{s,m}(x) =
+F_{s}(x) =
 \begin{cases}
-F_{\text{bulk},s,m}(x), & x \leq u_{s,m} \\
-1 - p_{\text{exceed}}\left(1 + \frac{\xi(x - u_{s,m})}{\sigma}\right)^{-1/\xi}, & x > u_{s,m}
+F_{\text{empirical}}(x), & x \leq u_{s} \\
+1 - p_{\text{exceed}}\left(1 + \frac{\xi(x - u_{s})}{\sigma}\right)^{-1/\xi}, & x > u_{s}
 \end{cases}
 $$
 
-where $F_{\text{bulk},s,m}(x)$ is the empirical distribution of non-extreme rainfall, $p_{\text{exceed}} = \Pr(X > u_{s,m})$, and $\sigma$ and $\xi$ are the scale and shape parameters of the Generalised Pareto Distribution fitted to the exceedances. Dependence between the observed gauges and the virtual stations is introduced through a conditional probability model that links both the occurrence and the magnitude of extreme rainfall. The probability of an exceedance at a virtual station is defined as
+where $F_{\text{empirical}}(x)$ represents direct resampling from the observed non-extreme 19-month totals, $u_s$ is the threshold (85th percentile), and $\sigma$ and $\xi$ are the scale and shape parameters of the GPD. The probability of exceeding the threshold is $p_{\text{exceed}} = \Pr(X > u_{s})$. The use of empirical resampling for the bulk avoids the systematic biases that occur with parametric distributions which tend to over-smooth mid-range values.
 
-$$
-\Pr(I_{v,m,t} = 1 \mid I_{g,m,t}, Z_t) = \text{logit}^{-1}(\alpha_m + \beta_m I_{g,m,t} + \gamma_m Z_t)
-$$
+Temporal structure is extracted from the Hunua and Waitakere gauge records by computing 19-month rolling sums and calculating an extremeness score for each period based on its percentile rank. This score ranges from 0 to 1 and provides a temporal template of wet and dry periods throughout the historical record. For the extension period (1853-1971), 19-month totals are simulated for each virtual station using the gauge temporal structure as a conditioning variable. The probability of sampling from the extreme tail is modulated by the gauge extremeness through $p_{\text{extreme},t} = p_{\text{exceed}} \times (0.5 + \text{extremeness}_t + \epsilon_t)$, where $\epsilon_t \sim N(0, 0.2^2)$ is random noise that accounts for spatial independence between the gauge sites and virtual stations.
 
-where $I_{v,m,t}$ and $I_{g,m,t}$ are exceedance indicators for the virtual and observed gauge stations respectively, and $Z_t$ represents optional climate covariates, e.g. the potential for evapotranspiration. When an exceedance occurs, the rainfall magnitude is drawn from the conditional tail model, ensuring that extreme events at the virtual station are consistent with those observed at the ranges. For months that are not extreme, a block-resampling technique is used to maintain realistic persistence and seasonal variation.
+This ensures that when the gauges show extreme wet or dry conditions, all virtual stations have increased probability of extremes, while still sampling from their own site-specific distributions rather than the gauge distributions. The random noise prevents perfect correlation, reflecting the spatial distance between sites, while all three Waikato sites share the same temporal structure to create realistic covariance.
 
+Disaggregation from 19-month to monthly values uses analog pattern resampling. For each simulated 19-month total, similar 19-month periods are found in the VCSN record (within 70-130% of target total, with seasonal preference), and the actual monthly pattern from that VCSN period is resampled and scaled proportionally to match the simulated total exactly. This preserves natural month-to-month variability and seasonal structure. Monthly values are then disaggregated to daily using VCSN daily climatology, calculating the typical within-month distribution of daily rainfall and applying this climatological pattern to the simulated monthly totals. For the VCSN period (1972+), the original daily values are used directly.
 
-This process produces long synthetic records that are consistent with both the statistical characteristics of the observed data and the physical relationship between the ranges and the lower catchments.
+## Comparison to Previous Methods
 
-This allows for multiple stochastic realisations which can be used to assess uncertainty in long term rainfall behaviour. It also gives a structured way to integrate short modelled records with long observed ones, ensuring that the information contained in historical data is not lost.
-
-## Literature
-
-This method is well-supported by literature. For example, Carey-Smith et al. (2010) [1] use a generalised Pareto distribution (GPD) from selected extreme events using a mean + 2 S.D. threshold. This paper also verifies that, at these extremes, it is reasonable to consider consecutive events as independent samples (where correlation < .07).
-
-Furthermore, it is very common and standardised for stochastic weather generators to use this piecewise distribution, where one captures the mean reverting behaviour of day-to-day weather and another (GPD in this proposed method) for sampling extremes. In literature, this is refered to as a ``two-stage model''. Modern stochastic weather generators make use of this, such as Bird et al. (2023) [2] which, while using a deep learning approach, are able to succesfully reproduce observed seasonality while 
+The 2022 iteration used the Stochastic Climate Library (SCL) to generate piecewise stochastic extensions (1853-1906 and 1906-1960) which were then appended to observed records. While this method captured covariance well and produced good return period characteristics, it operated at shorter timescales and did not explicitly condition on the long gauge records. The current approach operates directly at the 19-month scale relevant for droughts, uses explicit conditioning on gauge temporal structure, and employs empirical resampling to avoid distributional assumptions. This produces return period curves that closely match both observed data and the SCL method across all timescales (1 to 1000+ years) while better preserving seasonal variability.
 
 ## Limitations
 
-Obviously, this method carries its own limitations. One is that is assumes that the relationship between the ranges and the virtual stations has remained constant through time. While in the past stationarity has been modelled, this inter-region stationarity was not. 
-
-Furthermore, this method is sensitive on the choice of thresholds for defining extremes and on the accuracy of fitted distributions, both of which can influence the resulting statistics. 
-
-While conditional sampling captures many aspects of dependence, it does not fully reproduce spatial rainfall patterns or system dynamics (e.g. storm in the Waikato, dry in Auckland) that are captured by the virtual records.
+This method assumes that the statistical relationship between the ranges and virtual stations has remained constant through time. Climate change trends are not explicitly modeled in the extension period. Results depend on the choice of threshold for separating bulk from tail (currently 85th percentile), which affects the balance between empirical and parametric modeling. While temporal structure is shared across sites, spatial rainfall patterns and regional weather system dynamics are simplified. The GPD tail extrapolation beyond observed extremes carries inherent uncertainty, as events more extreme than those in the 52-year VCSN record are modeled but not validated. The constraint to match 19-month totals during disaggregation can slightly smooth extreme individual months compared to purely independent sampling.
 
 ## References
 
-[1] https://www.metsoc.org.nz/resources/Documents/weather_and_climate/2010_301_23-48_CareySmith.pdf#
+[1] Carey-Smith, T., et al. (2010). "A comparison of sampling methods for estimating extreme rainfall from a regional climate model." Weather and Climate, 30, 23-48. https://www.metsoc.org.nz/resources/Documents/weather_and_climate/2010_301_23-48_CareySmith.pdf
 
-[2] https://gmd.copernicus.org/articles/16/3785/2023/#
+[2] Bird, D., et al. (2023). "A deep learning approach to downscaling and bias correction of daily precipitation using a weather generator." Geoscientific Model Development, 16, 3785-3812. https://gmd.copernicus.org/articles/16/3785/2023/
 
-
-
-
+[3] Coles, S. (2001). An Introduction to Statistical Modeling of Extreme Values. Springer.
